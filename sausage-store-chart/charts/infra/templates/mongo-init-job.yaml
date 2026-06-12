@@ -1,0 +1,51 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-mongo-init
+  annotations:
+    # Hook запускается ПОСЛЕ установки основных ресурсов (когда mongodb уже создан)
+    "helm.sh/hook": "post-install"
+    "helm.sh/hook-weight": "5"
+    # Чистим прошлую джобу перед повторным запуском и после успеха
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      name: {{ .Release.Name }}-mongo-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mongo-init
+          image: mongo:7.0
+          env:
+            - name: MONGO_ROOT_USER
+              value: {{ .Values.mongodb.env.MONGO_INITDB_ROOT_USERNAME | quote }}
+            - name: MONGO_ROOT_PASSWORD
+              value: {{ .Values.mongodb.env.MONGO_INITDB_ROOT_PASSWORD | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              # 1. Ждём, пока mongodb начнёт отвечать
+              until mongosh "mongodb://$MONGO_ROOT_USER:$MONGO_ROOT_PASSWORD@mongodb:27017/admin" \
+                    --quiet --eval 'db.runCommand({ ping: 1 })'; do
+                echo "Waiting for mongodb to be ready..."
+                sleep 3
+              done
+              # 2. Идемпотентно создаём пользователя reports на БД sausage-store
+              mongosh "mongodb://$MONGO_ROOT_USER:$MONGO_ROOT_PASSWORD@mongodb:27017/admin" --quiet --eval '
+                const target = db.getSiblingDB("sausage-store");
+                if (!target.getUser("reports")) {
+                  target.createUser({
+                    user: "reports",
+                    pwd: "reportspassword",
+                    roles: [{ role: "readWrite", db: "sausage-store" }]
+                  });
+                  print("user reports created");
+                } else {
+                  print("user reports already exists");
+                }
+              '

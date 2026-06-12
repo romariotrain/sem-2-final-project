@@ -9,7 +9,7 @@ env:
   NEXUS_HELM_REPO: ${{ secrets.NEXUS_HELM_REPO }}
   NEXUS_HELM_REPO_USER: ${{ secrets.NEXUS_HELM_REPO_USER }}
   NEXUS_HELM_REPO_PASSWORD: ${{ secrets.NEXUS_HELM_REPO_PASSWORD }}
-  SAUSAGE_STORE_NAMESPACE: YOUR_NAMESPACE
+  SAUSAGE_STORE_NAMESPACE: r-devops-magistracy-project-2sem-251290862
   KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
   VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
 
@@ -48,7 +48,7 @@ jobs:
             # Для каждого пересобранного образа 
             # устанавливаем тег latest, чтобы потом
             # на сервере и в docker-compose.yml не указывать версию образа:
-            tags: YOUR_DOCKERHUB/sausage-backend:latest
+            tags: romariotrain/sausage-backend:latest
             build-args: |
               VERSION=${{ github.sha }}
         - name: Push Frontend to DockerHub
@@ -56,13 +56,13 @@ jobs:
           with:
             context: ./frontend/
             push: true
-            tags: YOUR_DOCKERHUB/sausage-frontend:latest
+            tags: romariotrain/sausage-frontend:latest
         - name: Push Backend-report to DockerHub
           uses: docker/build-push-action@v4
           with:
             context: ./backend-report/
             push: true
-            tags: YOUR_DOCKERHUB/sausage-backend-report:latest
+            tags: romariotrain/sausage-backend-report:latest
   # Упаковываем helm-чарт и пушим его в Nexus
   add_helm_chart_to_nexus:
       name: Add Helm Chart To Nexus
@@ -70,7 +70,23 @@ jobs:
       needs: build_and_push_to_docker_hub
 
       steps:
-      #### Опишите необходимые шаги
+        - name: Check out the repo
+          uses: actions/checkout@v3
+
+        - name: Install Helm
+          uses: azure/setup-helm@v4
+
+        # Упаковываем чарт в архив sausage-store-<version>.tgz
+        - name: Package Helm chart
+          run: helm package ./sausage-store-chart
+
+        # Загружаем архив в Hosted Helm репозиторий Nexus
+        - name: Push chart to Nexus
+          run: |
+            CHART=$(ls sausage-store-*.tgz)
+            curl -u "$NEXUS_HELM_REPO_USER:$NEXUS_HELM_REPO_PASSWORD" \
+              --upload-file "$CHART" \
+              "$NEXUS_HELM_REPO/$CHART"
 
   # Деплоим приложения в кластер Kubernetes с помощью helm-чарт
   deploy_helm_chart_to_kubernetes:
@@ -79,4 +95,24 @@ jobs:
       needs: add_helm_chart_to_nexus
 
       steps:
-      #### Опишите необходимые шаги
+        - name: Install Helm
+          uses: azure/setup-helm@v4
+
+        # 1. Подключаем helm-репозиторий Nexus
+        - name: Add Nexus Helm repo
+          run: |
+            helm repo add nexus "$NEXUS_HELM_REPO" --username "$NEXUS_HELM_REPO_USER" --password "$NEXUS_HELM_REPO_PASSWORD"
+            helm repo update
+
+        # 2. Готовим kubeconfig из секрета (секрет хранится в base64)
+        - name: Configure kubeconfig
+          run: |
+            mkdir -p "$HOME/.kube"
+            echo "$KUBE_CONFIG" | base64 -d > "$HOME/.kube/config"
+
+        # 3. Деплоим чарт из Nexus в свой namespace
+        - name: Deploy with Helm
+          run: |
+            helm upgrade --install sausage-store nexus/sausage-store \
+              --namespace "$SAUSAGE_STORE_NAMESPACE" \
+              --wait --timeout 5m
