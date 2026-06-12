@@ -19,7 +19,7 @@ frontend:
     path: /
     pathType: Prefix
     tlsSecret: 2sem-students-projects-wildcard-secret
-  containerPort: 80
+  containerPort: 8080
   image: romariotrain/sausage-frontend:latest
   resources:
     requests:
@@ -27,7 +27,7 @@ frontend:
       cpu: "100m"
     limits:
       memory: "128Mi"
-      cpu: "1"
+      cpu: "300m"
   nginxConf: nginx.conf
 
 backend:
@@ -54,11 +54,11 @@ backend:
   imagePullPolicy: Always
   resources:
     requests:
-      memory: "256Mi"
+      memory: "192Mi"
       cpu: "100m"
     limits:
       memory: "512Mi"
-      cpu: "1"
+      cpu: "600m"
   containerPort: 8080
   livenessProbe:
     httpGet:
@@ -97,7 +97,7 @@ backend-report:
       cpu: "50m"
     limits:
       memory: "128Mi"
-      cpu: "500m"
+      cpu: "300m"
   hpa:
     minReplicas: 1
     maxReplicas: 3

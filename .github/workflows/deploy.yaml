@@ -75,6 +75,8 @@ jobs:
 
         - name: Install Helm
           uses: azure/setup-helm@v4
+          with:
+            version: v3.16.4
 
         # Упаковываем чарт в архив sausage-store-<version>.tgz
         - name: Package Helm chart
@@ -97,6 +99,8 @@ jobs:
       steps:
         - name: Install Helm
           uses: azure/setup-helm@v4
+          with:
+            version: v3.16.4
 
         # 1. Подключаем helm-репозиторий Nexus
         - name: Add Nexus Helm repo
@@ -104,15 +108,24 @@ jobs:
             helm repo add nexus "$NEXUS_HELM_REPO" --username "$NEXUS_HELM_REPO_USER" --password "$NEXUS_HELM_REPO_PASSWORD"
             helm repo update
 
-        # 2. Готовим kubeconfig из секрета (секрет хранится в base64)
+        # 2. Готовим kubeconfig из секрета.
+        #    Поддерживаем оба формата секрета: base64 ИЛИ сырой kubeconfig.
         - name: Configure kubeconfig
           run: |
             mkdir -p "$HOME/.kube"
-            echo "$KUBE_CONFIG" | base64 -d > "$HOME/.kube/config"
+            if echo "$KUBE_CONFIG" | base64 -d > "$HOME/.kube/config" 2>/dev/null \
+               && grep -q "apiVersion" "$HOME/.kube/config"; then
+              echo "kubeconfig: декодирован из base64"
+            else
+              echo "$KUBE_CONFIG" > "$HOME/.kube/config"
+              echo "kubeconfig: использован как сырой текст"
+            fi
+            chmod 600 "$HOME/.kube/config"
 
         # 3. Деплоим чарт из Nexus в свой namespace
         - name: Deploy with Helm
           run: |
             helm upgrade --install sausage-store nexus/sausage-store \
               --namespace "$SAUSAGE_STORE_NAMESPACE" \
-              --wait --timeout 5m
+              --history-max 3 \
+              --wait --timeout 10m

@@ -5,10 +5,10 @@ metadata:
   name: {{ .Release.Name }}-mongo-init
   annotations:
     # Hook запускается ПОСЛЕ установки основных ресурсов (когда mongodb уже создан)
-    "helm.sh/hook": "post-install"
+    "helm.sh/hook": "post-install,post-upgrade"
     "helm.sh/hook-weight": "5"
     # Чистим прошлую джобу перед повторным запуском и после успеха
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    "helm.sh/hook-delete-policy": before-hook-creation
 spec:
   backoffLimit: 10
   template:
@@ -19,6 +19,14 @@ spec:
       containers:
         - name: mongo-init
           image: mongo:7.0
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              # mongosh (Node.js) прожорлив по памяти — иначе OOMKilled
+              memory: "256Mi"
+              cpu: "200m"
           env:
             - name: MONGO_ROOT_USER
               value: {{ .Values.mongodb.env.MONGO_INITDB_ROOT_USERNAME | quote }}
